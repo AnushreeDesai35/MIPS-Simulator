@@ -1,10 +1,13 @@
 from constants import *
+import re
 class Instruction:
     def __init__(self, name, destination_register=None, source_register1=None, source_register2=None, processing_units = []):
         self.name = name.split(',')[0].upper()
         self.destination_register = destination_register.split(',')[0] if(destination_register != None) else None
-        self.source_register1 = source_register1.split(',')[0].upper() if(source_register1 != None) else None
+        # self.source_register1 = source_register1.split(',')[0].upper() if(source_register1 != None) else None
+        self.source_register1 = (re.split('[()]', source_register1)[1].upper() if (self.name in DATA_TRANSFER) else source_register1.split(',')[0].upper()) if (source_register1 != None) else None
         self.source_register2 = source_register2.split(',')[0].upper() if(source_register2 != None) else None
+        self.base_address = int(re.split('[()]', source_register1)[0]) if (source_register1 != None and self.name in DATA_TRANSFER) else None
         self.i_type = ""
         if self.name in DATA_TRANSFER:
             self.i_type = DATA_TRANSFER
