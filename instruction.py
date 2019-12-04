@@ -41,6 +41,7 @@ class Instruction:
             return 1
         elif(self.name in [LOAD, STORE]):
             return 1
+        else: return 0
 
     def calculate_execution_cycles(self, processing_units):
         if(self.name in UNIT_INST_MAP[FP_ADDER]):
@@ -57,7 +58,6 @@ class Instruction:
     def next_stage_proceed_check(self, stages_busy_status, dependency_dict):
         proceed = False
         issued = self.current_stage == 0
-
         raw = self.check_RAW(self.source_register1, self.source_register2, dependency_dict)
         if raw: return False, issued
 
@@ -67,13 +67,11 @@ class Instruction:
                     proceed = True
                 else:
                     notbusy = self.unit.pipelined == "YES" or not self.unit.busy
-                    proceed = notbusy 
-            # else:
-            #     # issued = self.current_stage == 0
-            #     # proceed = not stages_busy_status[self.current_stage + 1]
-            #     proceed = not stages_busy_status[self.current_stage + 1] if self.name in UNIT_INST_MAP[INT_AL] + DATA_TRANSFER else not stages_busy_status[self.current_stage + 2]
+                    proceed = notbusy
             elif(self.current_stage == EX):
-                proceed = not stages_busy_status[self.current_stage + 1] if self.name in UNIT_INST_MAP[INT_AL] + DATA_TRANSFER else not stages_busy_status[self.current_stage + 2]
+                if(self.execution_cycles > 0 ): self.execution_cycles -= 1
+                if(self.execution_cycles == 0): proceed = not stages_busy_status[self.current_stage + 1] if self.name in UNIT_INST_MAP[INT_AL] + DATA_TRANSFER else not stages_busy_status[self.current_stage + 2]
+                else: proceed = False
             else:
                 proceed = not stages_busy_status[self.current_stage + 1]
         return proceed, issued
@@ -107,26 +105,30 @@ class Instruction:
                 self.completed_on[ID] = clock_cycle
                 dependency_dict[self.destination_register] = self
         elif(self.current_stage == EX):
-            self.execution_cycles -= 1
             if(self.unit.pipelined == "YES"):
                 self.unit.busy = False
             else:
                 self.unit.busy = True
             if(self.execution_cycles == 0):
+                self.unit.busy = False
+                self.completed_on[EX] = clock_cycle
                 if(self.name in (UNIT_INST_MAP[INT_AL]) + (DATA_TRANSFER)):
                     self.current_stage += 1
                     stages_busy_status[MEM] = True
                 else:
                     self.current_stage += 2
-                self.unit.busy = False
-                self.completed_on[EX] = clock_cycle
+                    stages_busy_status[WB] = True
+
         elif(self.current_stage == MEM):
             self.memory_cycles -= 1
             if(self.memory_cycles == 0):
                 self.current_stage += 1
                 stages_busy_status[MEM] = False
                 self.completed_on[MEM] = clock_cycle
+                stages_busy_status[WB] = True
+
         elif(self.current_stage == WB):
             self.completed_on[WB] = clock_cycle
             self.finished = True
+            stages_busy_status[WB] = False
             dependency_dict[self.destination_register] = None

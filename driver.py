@@ -17,7 +17,6 @@ config_file = "config.txt"
 stages_busy_status = {
     IF: False,
     ID: False,
-    # EX: False,
     MEM: False,
     WB: False,
     FINISHED: False
@@ -43,7 +42,6 @@ memory_dict = {}
 with open(memory_file) as memory_data:
     for idx, line in enumerate(memory_data):
         memory_dict[idx+256] = int(line, 2)
-# print(register_dict)
 
 with open(program_file) as program:
     for line in program:
@@ -55,8 +53,6 @@ dependency_dict = {}
 program_counter = 0
 while(clock_cycle <= 50):
     for instruction in instruction_set:
-        # print("*****New Instruction*****")
-        # print(dependency_dict)
         safe_to_proceed, instruction_issued = instruction.next_stage_proceed_check(stages_busy_status, dependency_dict)
         if(safe_to_proceed):
             if(instruction_issued): program_counter += 1
