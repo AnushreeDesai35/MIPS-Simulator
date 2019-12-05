@@ -4,10 +4,22 @@ class Instruction:
     def __init__(self, name, destination_register=None, source_register1=None, source_register2=None, processing_units = []):
         self.name = name.split(',')[0].upper()
         self.destination_register = destination_register.split(',')[0] if(destination_register != None) else None
-        # self.source_register1 = source_register1.split(',')[0].upper() if(source_register1 != None) else None
         self.source_register1 = (re.split('[()]', source_register1)[1].upper() if (self.name in DATA_TRANSFER) else source_register1.split(',')[0].upper()) if (source_register1 != None) else None
         self.source_register2 = source_register2.split(',')[0].upper() if(source_register2 != None) else None
         self.base_address = int(re.split('[()]', source_register1)[0]) if (source_register1 != None and self.name in DATA_TRANSFER) else None
+        self.current_stage = 0
+        self.finished = False
+        self.unit = self.find_inst_unit(processing_units)
+        self.execution_cycles = self.calculate_execution_cycles(processing_units)
+        self.memory_cycles = self.calculate_memory_cycles(processing_units)
+        self.destination_register_value = None
+        self.completed_on = {
+            IF: None,
+            ID: None,
+            EX: None,
+            MEM: None,
+            WB: None
+        }
         self.i_type = ""
         if self.name in DATA_TRANSFER:
             self.i_type = DATA_TRANSFER
@@ -17,18 +29,6 @@ class Instruction:
             self.i_type = CONTROL
         else:
             self.i_type = SPECIAL
-        self.current_stage = 0
-        self.completed_on = {
-            IF: None,
-            ID: None,
-            EX: None,
-            MEM: None,
-            WB: None
-        }
-        self.finished = False
-        self.unit = self.find_inst_unit(processing_units)
-        self.execution_cycles = self.calculate_execution_cycles(processing_units)
-        self.memory_cycles = self.calculate_memory_cycles(processing_units)
 
     def find_inst_unit(self, processing_units):
         for f_unit, instructions in UNIT_INST_MAP.items():
@@ -87,50 +87,60 @@ class Instruction:
         else: return False
 
     def proceed_to_next_stage(self, stages_busy_status, clock_cycle, dependency_dict):
-        if(self.current_stage == 0):
-            self.current_stage += 1
-            stages_busy_status[IF] = True
-        elif(self.current_stage == IF):
-            self.current_stage += 1
-            stages_busy_status[IF] = False
-            stages_busy_status[ID] = True
-            self.completed_on[IF] = clock_cycle
-        elif(self.current_stage == ID):
-            if(self.name in CONTROL + SPECIAL):
-                self.current_stage = 6
-                stages_busy_status[ID] = False
-                self.completed_on[ID] = clock_cycle
-                self.finished = True
-            else:
-                self.unit.busy = True
-                self.current_stage += 1
-                stages_busy_status[ID] = False
-                self.completed_on[ID] = clock_cycle
-                dependency_dict[self.destination_register] = self
-        elif(self.current_stage == EX):
-            if(self.unit.pipelined == "YES"):
-                self.unit.busy = False
-            else:
-                self.unit.busy = True
-            if(self.execution_cycles == 0):
-                self.unit.busy = False
-                self.completed_on[EX] = clock_cycle
-                if(self.name in (UNIT_INST_MAP[INT_AL]) + (DATA_TRANSFER)):
-                    self.current_stage += 1
-                    stages_busy_status[MEM] = True
-                else:
-                    self.current_stage += 2
-                    stages_busy_status[WB] = True
+        if(self.current_stage == 0): self.issue_instruction(stages_busy_status)
+        elif(self.current_stage == IF): self.goto_ID_stage(stages_busy_status, clock_cycle, dependency_dict)
+        elif(self.current_stage == ID): self.goto_EX_stage(stages_busy_status, clock_cycle, dependency_dict)
+        elif(self.current_stage == EX): self.goto_MEM_or_WB_stage(stages_busy_status, clock_cycle, dependency_dict)
+        elif(self.current_stage == MEM): self.goto_WB_stage(stages_busy_status, clock_cycle, dependency_dict)
+        elif(self.current_stage == WB): self.goto_FINISH_stage(stages_busy_status, clock_cycle, dependency_dict)
 
-        elif(self.current_stage == MEM):
-            self.memory_cycles -= 1
-            if(self.memory_cycles == 0):
+    def issue_instruction(self, stages_busy_status):
+        self.current_stage += 1
+        stages_busy_status[IF] = True
+
+    def goto_ID_stage(self, stages_busy_status, clock_cycle, dependency_dict):
+        self.current_stage += 1
+        stages_busy_status[IF] = False
+        stages_busy_status[ID] = True
+        self.completed_on[IF] = clock_cycle
+
+    def goto_EX_stage(self, stages_busy_status, clock_cycle, dependency_dict):
+        if(self.name in CONTROL + SPECIAL):
+            self.current_stage = 6
+            stages_busy_status[ID] = False
+            self.completed_on[ID] = clock_cycle
+            self.finished = True
+        else:
+            self.unit.busy = True
+            self.current_stage += 1
+            stages_busy_status[ID] = False
+            self.completed_on[ID] = clock_cycle
+            dependency_dict[self.destination_register] = self
+
+    def goto_MEM_or_WB_stage(self, stages_busy_status, clock_cycle, dependency_dict):
+        if(self.unit.pipelined == "YES"):
+            self.unit.busy = False
+        else:
+            self.unit.busy = True
+        if(self.execution_cycles == 0):
+            self.unit.busy = False
+            self.completed_on[EX] = clock_cycle
+            if(self.name in (UNIT_INST_MAP[INT_AL]) + (DATA_TRANSFER)):
                 self.current_stage += 1
-                stages_busy_status[MEM] = False
-                self.completed_on[MEM] = clock_cycle
+                stages_busy_status[MEM] = True
+            else:
+                self.current_stage += 2
                 stages_busy_status[WB] = True
+            
+    def goto_WB_stage(self, stages_busy_status, clock_cycle, dependency_dict):
+        self.memory_cycles -= 1
+        if(self.memory_cycles == 0):
+            self.current_stage += 1
+            stages_busy_status[MEM] = False
+            self.completed_on[MEM] = clock_cycle
+            stages_busy_status[WB] = True
 
-        elif(self.current_stage == WB):
+    def goto_FINISH_stage(self, stages_busy_status, clock_cycle, dependency_dict):
             self.completed_on[WB] = clock_cycle
             self.finished = True
             stages_busy_status[WB] = False

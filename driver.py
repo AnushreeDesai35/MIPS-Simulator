@@ -29,7 +29,6 @@ clock_cycle = 0
 with open(config_file) as config:
     for line in config:
         operands = re.split("[:,]", line)
-        # print(operands)
         pu = ProcessingUnit(operands[0].rstrip().lstrip(), operands[1].rstrip().lstrip() if 1 < len(operands) else None, operands[2].rstrip().lstrip() if 2 < len(operands) else None, None)
         processing_units.append(pu)
 processing_units.append(ProcessingUnit(INT_AL, 1, 'yes', None))
@@ -47,7 +46,6 @@ with open(memory_file) as memory_data:
 with open(program_file) as program:
     for line in program:
         operands = list(filter(lambda character: character != '', re.split("[ ,]", line)))
-        # print(operands)
         inst = Instruction(operands[0].rstrip(), operands[1].rstrip() if 1 < len(operands) else None, operands[2].rstrip() if 2 < len(operands) else None, operands[3].rstrip() if 3 < len(operands) else None, processing_units)
         instruction_set.append(inst)
 
