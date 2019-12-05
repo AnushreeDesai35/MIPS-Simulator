@@ -86,13 +86,13 @@ class Instruction:
             return sr1_check or sr2_check
         else: return False
 
-    def proceed_to_next_stage(self, stages_busy_status, clock_cycle, dependency_dict):
+    def proceed_to_next_stage(self, stages_busy_status, clock_cycle, dependency_dict, register_data_R_series, memory_data, instruction_set):
         if(self.current_stage == 0): self.issue_instruction(stages_busy_status)
         elif(self.current_stage == IF): self.goto_ID_stage(stages_busy_status, clock_cycle, dependency_dict)
         elif(self.current_stage == ID): self.goto_EX_stage(stages_busy_status, clock_cycle, dependency_dict)
-        elif(self.current_stage == EX): self.goto_MEM_or_WB_stage(stages_busy_status, clock_cycle, dependency_dict)
+        elif(self.current_stage == EX): self.goto_MEM_or_WB_stage(stages_busy_status, clock_cycle, dependency_dict, register_data_R_series, memory_data)
         elif(self.current_stage == MEM): self.goto_WB_stage(stages_busy_status, clock_cycle, dependency_dict)
-        elif(self.current_stage == WB): self.goto_FINISH_stage(stages_busy_status, clock_cycle, dependency_dict)
+        elif(self.current_stage == WB): self.goto_FINISH_stage(stages_busy_status, clock_cycle, dependency_dict, register_data_R_series)
 
     def issue_instruction(self, stages_busy_status):
         self.current_stage += 1
@@ -117,7 +117,8 @@ class Instruction:
             self.completed_on[ID] = clock_cycle
             dependency_dict[self.destination_register] = self
 
-    def goto_MEM_or_WB_stage(self, stages_busy_status, clock_cycle, dependency_dict):
+    def goto_MEM_or_WB_stage(self, stages_busy_status, clock_cycle, dependency_dict, register_data_R_series, memory_data):
+        if (self.name in UNIT_INST_MAP[INT_AL] + [LOAD, STORE]): self.perform_execution(register_data_R_series, memory_data)
         if(self.unit.pipelined == "YES"):
             self.unit.busy = False
         else:
@@ -140,8 +141,31 @@ class Instruction:
             self.completed_on[MEM] = clock_cycle
             stages_busy_status[WB] = True
 
-    def goto_FINISH_stage(self, stages_busy_status, clock_cycle, dependency_dict):
+    def goto_FINISH_stage(self, stages_busy_status, clock_cycle, dependency_dict, register_data_R_series):
+            register_data_R_series[self.destination_register] = self.destination_register_value
             self.completed_on[WB] = clock_cycle
             self.finished = True
             stages_busy_status[WB] = False
             dependency_dict[self.destination_register] = None
+
+    def perform_execution(self, register_data_R_series, memory_data):
+        if(self.name == LOAD):
+            self.destination_register_value = memory_data[int(self.base_address) + register_data_R_series(self.source_register1)]
+        elif(self.name == STORE):
+            memory_data[int(self.base_address) + register_data_R_series[self.source_register1]] = self.destination_register
+        elif(self.name == ADD_SIGNED):
+            self.destination_register_value = register_data_R_series[self.source_register1] + register_data_R_series[self.source_register2]
+        elif(self.name == ADD_IMMEDIATE_SIGNED):
+            self.destination_register_value = register_data_R_series[self.source_register1] + int(self.source_register2)
+        elif(self.name == SUBTRACT_SIGNED):
+            self.destination_register_value = register_data_R_series[self.source_register1] - register_data_R_series[self.source_register2]
+        elif(self.name == SUBTRACT_IMMEDIATE_SIGNED):
+            self.destination_register_value = register_data_R_series[self.source_register1] - int(self.source_register2)
+        elif(self.name == AND_BITWISE):
+            self.destination_register_value = register_data_R_series[self.source_register1] & register_data_R_series[self.source_register2]
+        elif(self.name == AND_BITWISE_IMMEDIATE):
+            self.destination_register_value = register_data_R_series[self.source_register1] & int(self.source_register2)
+        elif(self.name == OR_BITWISE):
+            self.destination_register_value = register_data_R_series[self.source_register1] | register_data_R_series[self.source_register2]
+        elif(self.name == OR_BITWISE_IMMEDIATE):
+            self.destination_register_value = register_data_R_series[self.source_register1] | int(self.source_register2)

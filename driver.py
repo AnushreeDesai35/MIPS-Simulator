@@ -33,15 +33,19 @@ with open(config_file) as config:
         processing_units.append(pu)
 processing_units.append(ProcessingUnit(INT_AL, 1, 'yes', None))
 
-register_dict = {}
+register_data_R_series = {}
 with open(register_file) as register_data:
     for idx, line in enumerate(register_data):
-        register_dict["R"+str(idx)] = int(line, 2)
+        register_data_R_series["R"+str(idx)] = int(line, 2)
 
-memory_dict = {}
-with open(memory_file) as memory_data:
-    for idx, line in enumerate(memory_data):
-        memory_dict[idx+256] = int(line, 2)
+# register_data_F_series = {}
+# for i in range(32):
+#     register_data_F_series["F"+str(idx)] = 0
+
+memory_data = {}
+with open(memory_file) as file_data:
+    for idx, line in enumerate(file_data):
+        memory_data[idx+256] = int(line.rstrip(), 2)
 
 with open(program_file) as program:
     for line in program:
@@ -56,7 +60,7 @@ while(clock_cycle <= 50):
         safe_to_proceed, instruction_issued = instruction.next_stage_proceed_check(stages_busy_status, dependency_dict)
         if(safe_to_proceed):
             if(instruction_issued): program_counter += 1
-            instruction.proceed_to_next_stage(stages_busy_status, clock_cycle, dependency_dict)
+            instruction.proceed_to_next_stage(stages_busy_status, clock_cycle, dependency_dict, register_data_R_series, memory_data, instruction_set)
     clock_cycle += 1
 
 for inst in instruction_set:
