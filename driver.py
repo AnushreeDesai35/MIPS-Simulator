@@ -47,20 +47,41 @@ with open(memory_file) as file_data:
     for idx, line in enumerate(file_data):
         memory_data[idx+256] = int(line.rstrip(), 2)
 
+label_data = {}
 with open(program_file) as program:
-    for line in program:
-        operands = list(filter(lambda character: character != '', re.split("[ ,]", line)))
-        inst = Instruction(operands[0].rstrip(), operands[1].rstrip() if 1 < len(operands) else None, operands[2].rstrip() if 2 < len(operands) else None, operands[3].rstrip() if 3 < len(operands) else None, processing_units)
+    for idx, line in enumerate(program):
+        label = None
+        operands = []
+        reg = None
+        base = None
+        label_check = re.split(":", line)
+        if len(label_check) == 2:
+            operands = list(filter(lambda character: character != '', re.split("[ ,]", label_check[1])))
+            label = label_check[0]
+            label_data[label] = idx
+        else:
+            operands = list(filter(lambda character: character != '', re.split("[ ,]", line)))
+        if(len(operands) > 2):
+            op = operands[2].rstrip()
+            tempstr = re.split("[()]", op)
+            if(len(tempstr)>1):
+                base = tempstr[0]
+                reg = tempstr[1]
+            else:
+                reg = tempstr[0]
+        inst = Instruction(operands[0].rstrip(), operands[1].rstrip() if 1 < len(operands) else None, reg, operands[3].rstrip() if 3 < len(operands) else None, label, processing_units, base)
         instruction_set.append(inst)
 
 dependency_dict = {}
-program_counter = 0
-while(clock_cycle <= 50):
-    for instruction in instruction_set:
+program_counter = -1
+i_cache = [[],[],[],[]]
+inst_length = len(instruction_set)
+while(clock_cycle <= 200):
+    for idx, instruction in enumerate(instruction_set):
         safe_to_proceed, instruction_issued = instruction.next_stage_proceed_check(stages_busy_status, dependency_dict)
         if(safe_to_proceed):
+            instruction.proceed_to_next_stage(stages_busy_status, clock_cycle, dependency_dict, register_data_R_series, memory_data, instruction_set, label_data, idx, processing_units, i_cache, program_counter, inst_length)
             if(instruction_issued): program_counter += 1
-            instruction.proceed_to_next_stage(stages_busy_status, clock_cycle, dependency_dict, register_data_R_series, memory_data, instruction_set)
     clock_cycle += 1
 
 for inst in instruction_set:

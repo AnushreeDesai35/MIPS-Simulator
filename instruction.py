@@ -1,18 +1,23 @@
 from constants import *
 import re
+from d_cache import *
+dcache_obj = D_cache()
 class Instruction:
-    def __init__(self, name, destination_register=None, source_register1=None, source_register2=None, processing_units = []):
+    def __init__(self, name, destination_register=None, source_register1=None, source_register2=None, label=None, processing_units = [], base=None):
         self.name = name.split(',')[0].upper()
         self.destination_register = destination_register.split(',')[0] if(destination_register != None) else None
-        self.source_register1 = (re.split('[()]', source_register1)[1].upper() if (self.name in DATA_TRANSFER) else source_register1.split(',')[0].upper()) if (source_register1 != None) else None
+        self.source_register1 = source_register1
         self.source_register2 = source_register2.split(',')[0].upper() if(source_register2 != None) else None
-        self.base_address = int(re.split('[()]', source_register1)[0]) if (source_register1 != None and self.name in DATA_TRANSFER) else None
+        self.base = base
         self.current_stage = 0
+        self.remaning_cycles = 1
         self.finished = False
+        self.i_cache_set = False
         self.unit = self.find_inst_unit(processing_units)
         self.execution_cycles = self.calculate_execution_cycles(processing_units)
         self.memory_cycles = self.calculate_memory_cycles(processing_units)
         self.destination_register_value = None
+        self.label = label
         self.completed_on = {
             IF: None,
             ID: None,
@@ -62,7 +67,8 @@ class Instruction:
         proceed = False
         issued = self.current_stage == 0
         raw = self.check_RAW(self.source_register1, self.source_register2, dependency_dict)
-        if raw: return False, issued
+        waw = self.check_WAW(dependency_dict)
+        if raw or waw: return False, issued
 
         if not self.finished:
             if self.current_stage == ID:
@@ -83,14 +89,25 @@ class Instruction:
         if self.current_stage == ID:
             sr1_check = source_register1 in dependency_dict and dependency_dict[source_register1] != None
             sr2_check = source_register2 in dependency_dict and dependency_dict[source_register2] != None
+
+            if(self.name in CONTROL):
+                sr1_check = source_register1 in dependency_dict and dependency_dict[source_register1] != None
+                sr2_check = self.destination_register in dependency_dict and dependency_dict[self.destination_register] != None
             return sr1_check or sr2_check
         else: return False
+    
+    def check_WAW(self, dependency_dict):
+        if(self.current_stage == ID):
+            if(self.name not in CONTROL):
+                return self.destination_register in dependency_dict and dependency_dict[self.destination_register] != None
+            else: return False
+        else: return False
 
-    def proceed_to_next_stage(self, stages_busy_status, clock_cycle, dependency_dict, register_data_R_series, memory_data, instruction_set):
+    def proceed_to_next_stage(self, stages_busy_status, clock_cycle, dependency_dict, register_data_R_series, memory_data, instruction_set, label_data, idx, processing_units, i_cache, program_counter, inst_length):
         if(self.current_stage == 0): self.issue_instruction(stages_busy_status)
-        elif(self.current_stage == IF): self.goto_ID_stage(stages_busy_status, clock_cycle, dependency_dict)
-        elif(self.current_stage == ID): self.goto_EX_stage(stages_busy_status, clock_cycle, dependency_dict)
-        elif(self.current_stage == EX): self.goto_MEM_or_WB_stage(stages_busy_status, clock_cycle, dependency_dict, register_data_R_series, memory_data)
+        elif(self.current_stage == IF): self.goto_ID_stage(stages_busy_status, clock_cycle, dependency_dict, i_cache, program_counter, processing_units, instruction_set, inst_length)
+        elif(self.current_stage == ID): self.goto_EX_stage(stages_busy_status, clock_cycle, dependency_dict, register_data_R_series, memory_data, instruction_set, label_data, idx, processing_units)
+        elif(self.current_stage == EX): self.goto_MEM_or_WB_stage(stages_busy_status, clock_cycle, dependency_dict)
         elif(self.current_stage == MEM): self.goto_WB_stage(stages_busy_status, clock_cycle, dependency_dict)
         elif(self.current_stage == WB): self.goto_FINISH_stage(stages_busy_status, clock_cycle, dependency_dict, register_data_R_series)
 
@@ -98,13 +115,57 @@ class Instruction:
         self.current_stage += 1
         stages_busy_status[IF] = True
 
-    def goto_ID_stage(self, stages_busy_status, clock_cycle, dependency_dict):
-        self.current_stage += 1
-        stages_busy_status[IF] = False
-        stages_busy_status[ID] = True
-        self.completed_on[IF] = clock_cycle
+    def goto_ID_stage(self, stages_busy_status, clock_cycle, dependency_dict, i_cache, program_counter, processing_units, instruction_set, inst_length):
 
-    def goto_EX_stage(self, stages_busy_status, clock_cycle, dependency_dict):
+        if self.i_cache_set:
+            self.remaning_cycles -= 1
+            if self.remaning_cycles == 0:
+                self.i_cache_set = False
+                self.current_stage += 1
+                stages_busy_status[IF] = False
+                stages_busy_status[ID] = True
+                self.completed_on[IF] = clock_cycle
+        else:
+            self.i_cache_set = True
+            program_counter = program_counter % 16
+            block = int(program_counter / 4)
+            base = block * 4
+            if program_counter not in i_cache[block]:
+                self.remaning_cycles = (2 * int(list(filter(lambda pu: pu.name == MAIN_MEMORY, processing_units))[0].cycle_count) + int(list(filter(lambda pu: pu.name == INSTRUCTION_CACHE, processing_units))[0].cycle_count))
+                i_cache[block] = tuple(map(lambda x: x + base, range(0,4)))
+            else:
+                self.remaning_cycles = int(list(filter(lambda pu: pu.name == INSTRUCTION_CACHE, processing_units))[0].cycle_count)
+                self.i_cache_set = False
+                self.current_stage += 1
+                stages_busy_status[IF] = False
+                stages_busy_status[ID] = True
+                self.completed_on[IF] = clock_cycle
+
+    def goto_EX_stage(self, stages_busy_status, clock_cycle, dependency_dict, register_data_R_series, memory_data, instruction_set, label_data, idx, processing_units):
+        if (self.name in UNIT_INST_MAP[INT_AL] + [LOAD, STORE]): self.perform_execution(register_data_R_series, memory_data)
+        # if (self.name in [LOAD, LOAD_DOUBLE, STORE, STORE_DOUBLE]):
+        #     dcache_obj.cache_check(register_data_R_series[self.source_register1]+self.base)
+
+        if(self.name in CONTROL):
+
+            bne = self.name == BRANCH_NOT_EQUAL
+            beq = self.name == BRANCH_EQUAL
+            J = self.name == UNCONDITIONAL_JUMP
+            trailing_inst = instruction_set[idx+2:]
+            if (bne and register_data_R_series[self.source_register1] != register_data_R_series[self.destination_register]) or (beq and register_data_R_series[self.source_register1] == register_data_R_series[self.destination_register]) or J:
+
+                start = label_data[self.source_register2]
+                label_data[self.source_register2] = len(instruction_set[label_data[self.source_register2]:idx+1]) - 1 + len(trailing_inst)
+
+                for extra in instruction_set[idx+2:]:
+                    instruction_set.remove(extra)
+
+                for i in instruction_set[start:idx+2]:
+                    newint = Instruction(i.name, i.destination_register, i.source_register1, i.source_register2, i.label, processing_units, self.base)
+                    instruction_set.append(newint)
+            else:       
+                instruction_set.extend(trailing_inst)
+
         if(self.name in CONTROL + SPECIAL):
             self.current_stage = 6
             stages_busy_status[ID] = False
@@ -117,8 +178,7 @@ class Instruction:
             self.completed_on[ID] = clock_cycle
             dependency_dict[self.destination_register] = self
 
-    def goto_MEM_or_WB_stage(self, stages_busy_status, clock_cycle, dependency_dict, register_data_R_series, memory_data):
-        if (self.name in UNIT_INST_MAP[INT_AL] + [LOAD, STORE]): self.perform_execution(register_data_R_series, memory_data)
+    def goto_MEM_or_WB_stage(self, stages_busy_status, clock_cycle, dependency_dict):
         if(self.unit.pipelined == "YES"):
             self.unit.busy = False
         else:
@@ -150,9 +210,9 @@ class Instruction:
 
     def perform_execution(self, register_data_R_series, memory_data):
         if(self.name == LOAD):
-            self.destination_register_value = memory_data[int(self.base_address) + register_data_R_series(self.source_register1)]
+            self.destination_register_value = memory_data[int(self.base) + register_data_R_series(self.source_register1)]
         elif(self.name == STORE):
-            memory_data[int(self.base_address) + register_data_R_series[self.source_register1]] = self.destination_register
+            memory_data[int(self.base) + register_data_R_series[self.source_register1]] = self.destination_register
         elif(self.name == ADD_SIGNED):
             self.destination_register_value = register_data_R_series[self.source_register1] + register_data_R_series[self.source_register2]
         elif(self.name == ADD_IMMEDIATE_SIGNED):
