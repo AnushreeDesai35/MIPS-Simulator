@@ -4,16 +4,12 @@ from processing_unit import ProcessingUnit
 from constants import *
 import re
 
-# program_file = sys.argv[1]
-# data_file = sys.argv[2]
-# register_file = sys.argv[3]
-# config_file = sys.argv[4]
-# # result_file = sys.argv[5]
+program_file = sys.argv[1]
+memory_file = sys.argv[2]
+register_file = sys.argv[3]
+config_file = sys.argv[4]
+result_file = sys.argv[5]
 
-program_file = "inst.txt"
-memory_file = "data.txt"
-register_file = "reg.txt"
-config_file = "config.txt"
 stages_busy_status = {
     IF: False,
     ID: False,
@@ -85,7 +81,7 @@ while(clock_cycle <= 200):
     clock_cycle += 1
 
 
-with open('result.txt', 'w') as f:
+with open(result_file, 'w') as f:
     f.write(str("Instruction").ljust(25) + str("FT").ljust(5) + str("ID").ljust(5) + str("EX").ljust(5) + str("WB").ljust(5) + str("RAW").ljust(5) + "WAR".ljust(5) + "WAW".ljust(5) + "Struct".ljust(5))
     for inst in instruction_set:
         ex_cycles = str(inst.completed_on[MEM]).ljust(5) if(inst.name in UNIT_INST_MAP[INT_AL] + DATA_TRANSFER) else str(inst.completed_on[EX]).ljust(5)
