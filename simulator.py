@@ -84,5 +84,11 @@ while(clock_cycle <= 200):
             if(instruction_issued): program_counter += 1
     clock_cycle += 1
 
-for inst in instruction_set:
-    print(str(inst).ljust(25) + str(inst.completed_on[IF]).ljust(5) + str(inst.completed_on[ID]).ljust(5) + str(inst.completed_on[EX]).ljust(5) + str(inst.completed_on[MEM]).ljust(5) + str(inst.completed_on[WB]).ljust(5))
+
+with open('result.txt', 'w') as f:
+    f.write(str("Instruction").ljust(25) + str("FT").ljust(5) + str("ID").ljust(5) + str("EX").ljust(5) + str("WB").ljust(5) + str("RAW").ljust(5) + "WAR".ljust(5) + "WAW".ljust(5) + "Struct".ljust(5))
+    for inst in instruction_set:
+        ex_cycles = str(inst.completed_on[MEM]).ljust(5) if(inst.name in UNIT_INST_MAP[INT_AL] + DATA_TRANSFER) else str(inst.completed_on[EX]).ljust(5)
+        inst_name = inst.label + ":" +str(inst) if (inst.label) else str(inst)
+        f.write("\n")
+        f.write(inst_name.ljust(25) + str(inst.completed_on[IF]).ljust(5) + str(inst.completed_on[ID]).ljust(5) + ex_cycles + str(inst.completed_on[WB]).ljust(5) + inst.raw.ljust(5) + inst.war.ljust(5) + inst.waw.ljust(5) + inst.struct.ljust(5))

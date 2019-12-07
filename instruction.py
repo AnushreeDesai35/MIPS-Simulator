@@ -18,6 +18,10 @@ class Instruction:
         self.memory_cycles = self.calculate_memory_cycles(processing_units)
         self.destination_register_value = None
         self.label = label
+        self.raw = "N"
+        self.war = "N"
+        self.waw = "N"
+        self.struct = "N"
         self.completed_on = {
             IF: None,
             ID: None,
@@ -68,7 +72,12 @@ class Instruction:
         issued = self.current_stage == 0
         raw = self.check_RAW(self.source_register1, self.source_register2, dependency_dict)
         waw = self.check_WAW(dependency_dict)
-        if raw or waw: return False, issued
+        if raw:
+            self.raw = "Y"
+            return False, issued
+        if waw:
+            self.waw = "Y"
+            return False, issued
 
         if not self.finished:
             if self.current_stage == ID:
@@ -192,6 +201,8 @@ class Instruction:
             else:
                 self.current_stage += 2
                 stages_busy_status[WB] = True
+        else:
+            self.struct = "Y"
             
     def goto_WB_stage(self, stages_busy_status, clock_cycle, dependency_dict):
         self.memory_cycles -= 1
@@ -200,6 +211,8 @@ class Instruction:
             stages_busy_status[MEM] = False
             self.completed_on[MEM] = clock_cycle
             stages_busy_status[WB] = True
+        else:
+            self.struct = "Y"
 
     def goto_FINISH_stage(self, stages_busy_status, clock_cycle, dependency_dict, register_data_R_series):
             register_data_R_series[self.destination_register] = self.destination_register_value
