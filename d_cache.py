@@ -1,6 +1,12 @@
 class D_cache:
-    def __init__(self):
-        self.cache = [[(1,2,3,4),(5,6,7,8)], []]
+
+    def __init__(self, id, size):
+        self.cache = [[], []]
+        self.hit = False
+        self.miss = False
+        # for i in range(self.size):
+        #     self.cache_block.append(Cache_Block(i, CACHE_BLOCK_SIZE))
+
 
     def cache_check(self, addr):
         block = int(addr/4)
